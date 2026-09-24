@@ -1,0 +1,61 @@
+{
+  "name": "incremental",
+  "version": "0.1.0",
+  "description": "A typed fold over object contributions: build an object piece by piece, know its exact shape at every step, and prove when it is complete.",
+  "keywords": [
+    "builder",
+    "composition",
+    "exhaustive",
+    "incremental",
+    "object-builder",
+    "type-level",
+    "type-safety",
+    "typescript"
+  ],
+  "homepage": "https://github.com/doeixd/incremental#readme",
+  "bugs": {
+    "url": "https://github.com/doeixd/incremental/issues"
+  },
+  "license": "MIT",
+  "author": "Patrick Glenn",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doeixd/incremental.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.mjs",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "test": "vp test",
+    "check": "vp check",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "vp run build",
+    "prepare": "vp config"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "bumpp": "^11.1.0",
+    "typescript": "^7.0.2",
+    "vite-plus": "^0.2.4"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.2"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "npm",
+      "version": "12.1.0",
+      "onFail": "download"
+    }
+  }
+}
