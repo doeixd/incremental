@@ -268,6 +268,68 @@ I.begin()
 
 </details>
 
+## Before / after: a Foldkit update
+
+[Foldkit](https://foldkit.dev) `update` functions return the next Model (and any
+Commands). When a Message produces a **whole next state** — a reset, an init, a
+submodel transition — `Incremental` can construct it and prove it complete.
+
+Given a small counter model:
+
+```ts
+const Model = Schema.Struct({
+  count: Schema.Number,
+  step: Schema.Number,
+  history: Schema.Array(Schema.Number),
+  canUndo: Schema.Boolean,
+  label: Schema.String,
+});
+type Model = typeof Model.Type;
+```
+
+**Before** — every field is listed by hand, and the derived fields (`canUndo`,
+`label`) are recomputed in the caller, so they can drift out of sync:
+
+```ts
+import { modifyFields } from "foldkit/struct";
+
+ClickedReset: () => ({
+  model: modifyFields(model, {
+    count: () => 0,
+    step: () => 1,
+    history: () => [],
+    canUndo: () => false,
+    label: () => "Count: 0",
+  }),
+}),
+```
+
+**After** — the next state is _constructed_: the compiler rejects a missing
+field, and `derive` computes the derived fields from their dependencies:
+
+```ts
+import { Incremental } from "@doeixd/incremental";
+
+const ModelI = Incremental.make<Model>();
+
+ClickedReset: () => ({
+  model: ModelI.build(
+    ModelI.with.count(0),
+    ModelI.with.step(1),
+    ModelI.with.history([]),
+    ModelI.derive(["count", "step"], ({ count, step }) => ({
+      canUndo: false,
+      label: `Count: ${count} · step ${step}`,
+    })),
+    ModelI.exhaustive,
+  ),
+}),
+```
+
+Add a field to `Model` and this handler stops compiling until you account for it
+— which is what you want for a reset. For messages that tweak a single field,
+keep `modifyFields`; `Incremental` is for producing a complete state.
+
 ## Diagnostics
 
 Invalid builds report a **named diagnostic** at the offending argument, rather
