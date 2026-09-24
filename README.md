@@ -268,44 +268,32 @@ I.begin()
 
 </details>
 
-## Before / after: a Foldkit update
+## Before / after: rebuilding a whole state
 
-[Foldkit](https://foldkit.dev) `update` functions return the next Model (and any
-Commands). When a Message produces a **whole next state** — a reset, an init, a
-submodel transition — `Incremental` can construct it and prove it complete.
-
-Given a small counter model:
+In a [Foldkit](https://foldkit.dev) update, a reset should produce a fresh Model:
 
 ```ts
-const Model = Schema.Struct({
-  count: Schema.Number,
-  step: Schema.Number,
-  history: Schema.Array(Schema.Number),
-  canUndo: Schema.Boolean,
-  label: Schema.String,
-});
-type Model = typeof Model.Type;
+interface Model {
+  count: number;
+  step: number;
+  history: number[];
+  canUndo: boolean;
+  label: string;
+}
 ```
 
-**Before** — every field is listed by hand, and the derived fields (`canUndo`,
-`label`) are recomputed in the caller, so they can drift out of sync:
+**Before** — changing the three source fields leaves the old derived fields in
+place. The spread still has the right TypeScript shape:
 
 ```ts
-import { modifyFields } from "foldkit/struct";
-
-ClickedReset: () => ({
-  model: modifyFields(model, {
-    count: () => 0,
-    step: () => 1,
-    history: () => [],
-    canUndo: () => false,
-    label: () => "Count: 0",
-  }),
+ClickedReset: ({ model }) => ({
+  model: { ...model, count: 0, step: 1, history: [] },
+  // `canUndo` and `label` may still describe the previous count.
 }),
 ```
 
-**After** — the next state is _constructed_: the compiler rejects a missing
-field, and `derive` computes the derived fields from their dependencies:
+**After** — construct the reset from scratch. `derive` sees the fields already
+built, and `exhaustive` requires every Model field:
 
 ```ts
 import { Incremental } from "@doeixd/incremental";
@@ -313,142 +301,104 @@ import { Incremental } from "@doeixd/incremental";
 const ModelI = Incremental.make<Model>();
 
 ClickedReset: () => ({
-  model: ModelI.build(
-    ModelI.with.count(0),
-    ModelI.with.step(1),
-    ModelI.with.history([]),
-    ModelI.derive(["count", "step"], ({ count, step }) => ({
-      canUndo: false,
-      label: `Count: ${count} · step ${step}`,
-    })),
-    ModelI.exhaustive,
-  ),
+  model: ModelI.begin()
+    .field("count", 0)
+    .field("step", 1)
+    .field("history", [])
+    .derive(({ count, history }) => ({
+      canUndo: history.length > 0,
+      label: `Count: ${count}`,
+    }))
+    .exhaustive(),
 }),
 ```
 
-Add a field to `Model` and this handler stops compiling until you account for it
-— which is what you want for a reset. For messages that tweak a single field,
-keep `modifyFields`; `Incremental` is for producing a complete state.
+Adding a required field to `Model` now makes the reset fail to compile until it
+provides that field. A small update to an existing state can still use the usual
+update helper.
 
-## Before / after: Foldkit messages
+## Before / after: dependent message data
 
-### Constructing a message
-
-A Message variant can carry a payload whose fields depend on one another.
-Listing them by hand means recomputing the derived ones and keeping them
-consistent.
-
-**Before** — `subtotal` is computed three times and `total` is arithmetic done
-in the caller:
+An order message needs a subtotal, tax, and total. These values form a sequence:
+each calculation needs a field produced earlier.
 
 ```ts
-h.button(
-  [
-    h.OnClick(
-      Message.SubmittedOrder({
-        items,
-        currency: "USD",
-        subtotal: items.reduce((sum, item) => sum + item.price * item.quantity, 0),
-        tax: items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 0.08,
-        total: items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 1.08,
-      }),
-    ),
-  ],
-  ["Place order"],
-);
-```
-
-**After** — the payload is built once, with the derived fields computed from
-their declared dependencies:
-
-```ts
-import { Incremental } from "@doeixd/incremental";
-
 interface OrderPayload {
-  items: ReadonlyArray<LineItem>;
-  currency: string;
+  items: ReadonlyArray<{ price: number; quantity: number }>;
   subtotal: number;
   tax: number;
   total: number;
 }
+
+const sumItems = (items: OrderPayload["items"]) =>
+  items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+```
+
+**Before** — an object literal allows the arithmetic to disagree with itself:
+
+```ts
+const subtotal = sumItems(items);
+const payload: OrderPayload = {
+  items,
+  subtotal,
+  tax: Math.round(subtotal * taxRate),
+  total: subtotal, // TypeScript accepts this stale total.
+};
+```
+
+**After** — each step reads the constructed state. The final result is a
+complete `OrderPayload`:
+
+```ts
 const OrderI = Incremental.make<OrderPayload>();
 
-h.button(
-  [
-    h.OnClick(
-      Message.SubmittedOrder(
-        OrderI.build(
-          OrderI.with.items(items),
-          OrderI.with.currency("USD"),
-          OrderI.derive(["items", "currency"], ({ items, currency }) => {
-            const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-            const rate = currency === "USD" ? 0.08 : 0.2;
-            const tax = Math.round(subtotal * rate);
-            return { subtotal, tax, total: subtotal + tax };
-          }),
-          OrderI.exhaustive,
-        ),
-      ),
-    ),
-  ],
-  ["Place order"],
-);
+const payload = OrderI.begin()
+  .field("items", items)
+  .derive(({ items }) => ({ subtotal: sumItems(items) }))
+  .derive(({ subtotal }) => ({ tax: Math.round(subtotal * taxRate) }))
+  .derive(({ subtotal, tax }) => ({ total: subtotal + tax }))
+  .exhaustive();
+
+Message.SubmittedOrder(payload);
 ```
 
-### Composing a message union
+The sequence makes dependencies visible. It still relies on your formulas being
+correct; the type proof covers which fields were constructed.
 
-When several features each own a slice of the app's messages, the cases are
-usually merged with object spread. A tag claimed by two features silently
-overwrites, and nothing proves the union is complete.
+## Before / after: combining feature modules
 
-Each feature exports its cases:
+Say routing and checkout each export a `handlers` object. The app has an
+independent list of the handlers it expects:
 
 ```ts
-// features/routing/messages.ts
-export const cases = {
-  Navigated: { route: Route },
-  LinkClicked: { href: Schema.String },
-};
+interface Handlers {
+  Navigated: (path: string) => void;
+  Submitted: (orderId: string) => void;
+  Cancelled: (orderId: string) => void;
+}
 ```
+
+**Before** — a later spread silently replaces an earlier tag. A missing tag can
+also go unnoticed when the target type is inferred from the spread:
 
 ```ts
-// features/remote/messages.ts
-export const cases = {
-  Received: { payload: Schema.String },
-  Failed: { error: Schema.String },
-};
+const handlers = { ...Routing.handlers, ...Checkout.handlers };
 ```
 
-**Before** — spread hides the collision:
-
-```ts
-import { defineMessageUnion } from "foldkit/message";
-import * as Routing from "./features/routing/messages";
-import * as Remote from "./features/remote/messages";
-
-const Message = defineMessageUnion({
-  ...Routing.cases,
-  ...Remote.cases,
-});
-```
-
-**After** — a duplicate tag is a compile error, and the union is proven
-complete:
+**After** — each feature contributes its own part. A duplicate tag fails at the
+second contribution, and `exhaustive` checks the result against `Handlers`:
 
 ```ts
 import { Incremental } from "@doeixd/incremental";
 
-type MessageCases = typeof Routing.cases & typeof Remote.cases;
+const H = Incremental.make<Handlers>();
 
-const Cases = Incremental.make<MessageCases>();
-const cases = Cases.build(
-  Cases.partial(Routing.cases),
-  Cases.partial(Remote.cases),
-  Cases.exhaustive,
-);
-
-const Message = defineMessageUnion(cases);
+const handlers = H.build(H.partial(Routing.handlers), H.partial(Checkout.handlers), H.exhaustive);
 ```
+
+For example, if both modules provide `Submitted`, the second part reports
+`DuplicateContributionError<"Submitted">`. If neither provides `Cancelled`,
+`exhaustive` reports `MissingKeysError<"Cancelled">`.
 
 ## Diagnostics
 
