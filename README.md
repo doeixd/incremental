@@ -292,8 +292,8 @@ ClickedReset: ({ model }) => ({
 }),
 ```
 
-**After** — construct the reset from scratch. `derive` sees the fields already
-built, and `exhaustive` requires every Model field:
+**After, chained builder** — construct the reset from scratch. `derive` sees the
+fields already built:
 
 ```ts
 import { Incremental } from "@doeixd/incremental";
@@ -312,6 +312,25 @@ ClickedReset: () => ({
     .exhaustive(),
 }),
 ```
+
+**After, composable parts** — the same reset declares its dependencies explicitly:
+
+```ts
+ClickedReset: () => ({
+  model: ModelI.build(
+    ModelI.with.count(0),
+    ModelI.with.step(1),
+    ModelI.with.history([]),
+    ModelI.derive(["count", "history"], ({ count, history }) => ({
+      canUndo: history.length > 0,
+      label: `Count: ${count}`,
+    })),
+    ModelI.exhaustive,
+  ),
+}),
+```
+
+Both forms require every Model field at `exhaustive`.
 
 Adding a required field to `Model` now makes the reset fail to compile until it
 provides that field. A small update to an existing state can still use the usual
@@ -346,8 +365,7 @@ const payload: OrderPayload = {
 };
 ```
 
-**After** — each step reads the constructed state. The final result is a
-complete `OrderPayload`:
+**After, chained builder** — each step reads the constructed state:
 
 ```ts
 const OrderI = Incremental.make<OrderPayload>();
@@ -362,8 +380,33 @@ const payload = OrderI.begin()
 Message.SubmittedOrder(payload);
 ```
 
-The sequence makes dependencies visible. It still relies on your formulas being
-correct; the type proof covers which fields were constructed.
+**After, composable parts** — each part names the fields it needs, so it can be
+defined separately and folded into the payload later:
+
+```ts
+const subtotalPart = OrderI.derive(["items"], ({ items }) => ({
+  subtotal: sumItems(items),
+}));
+const taxPart = OrderI.derive(["subtotal"], ({ subtotal }) => ({
+  tax: Math.round(subtotal * taxRate),
+}));
+const totalPart = OrderI.derive(["subtotal", "tax"], ({ subtotal, tax }) => ({
+  total: subtotal + tax,
+}));
+
+const payload = OrderI.build(
+  OrderI.with.items(items),
+  subtotalPart,
+  taxPart,
+  totalPart,
+  OrderI.exhaustive,
+);
+
+Message.SubmittedOrder(payload);
+```
+
+Both forms make the dependency order visible and produce a complete
+`OrderPayload`. The formulas themselves still need to be correct.
 
 ## Before / after: combining feature modules
 
@@ -385,8 +428,7 @@ also go unnoticed when the target type is inferred from the spread:
 const handlers = { ...Routing.handlers, ...Checkout.handlers };
 ```
 
-**After** — each feature contributes its own part. A duplicate tag fails at the
-second contribution, and `exhaustive` checks the result against `Handlers`:
+**After, composable parts** — each feature contributes its own part:
 
 ```ts
 import { Incremental } from "@doeixd/incremental";
@@ -396,7 +438,13 @@ const H = Incremental.make<Handlers>();
 const handlers = H.build(H.partial(Routing.handlers), H.partial(Checkout.handlers), H.exhaustive);
 ```
 
-For example, if both modules provide `Submitted`, the second part reports
+**After, chained builder** — the same modules can be added in sequence:
+
+```ts
+const handlers = H.begin().partial(Routing.handlers).partial(Checkout.handlers).exhaustive();
+```
+
+In either form, if both modules provide `Submitted`, the second contribution reports
 `DuplicateContributionError<"Submitted">`. If neither provides `Cancelled`,
 `exhaustive` reports `MissingKeysError<"Cancelled">`.
 
