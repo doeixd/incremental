@@ -140,13 +140,33 @@ function createPart<
   Out,
   Needs extends keyof T,
   Policy extends ContributionPolicy,
->(policy: Policy, run: (current: Record<string, unknown>) => Out): Part<T, Out, Needs, Policy> {
-  return { [PART]: true, policy, run } as unknown as Part<T, Out, Needs, Policy>;
+>(
+  policy: Policy,
+  needs: ReadonlyArray<keyof T & string>,
+  run: (current: Record<string, unknown>) => Out,
+): Part<T, Out, Needs, Policy> {
+  return {
+    [PART]: true,
+    policy,
+    needs,
+    run: (current: Record<string, unknown>) => {
+      for (const key of needs) {
+        if (!Object.hasOwn(current, key)) {
+          throw new Error(
+            `Incremental: missing required key "${key}". ` +
+              "Move the part that provides it earlier in the build.",
+          );
+        }
+      }
+      return run(current);
+    },
+  } as unknown as Part<T, Out, Needs, Policy>;
 }
 
 function fieldPart<T extends object, K extends keyof T>(key: K, value: T[K]) {
   return createPart<T, FieldContribution<T, K>, never, "add">(
     "add",
+    [],
     () =>
       ({
         [key]: value,
@@ -159,7 +179,11 @@ function objectPart<T extends object, P extends Partial<T>, Policy extends Contr
   source: P | (() => P),
 ) {
   const factory = typeof source === "function" ? (source as () => P) : () => source;
-  return createPart<T, NormalizeContribution<T, P>, never, Policy>(policy, () => factory() as any);
+  return createPart<T, NormalizeContribution<T, P>, never, Policy>(
+    policy,
+    [],
+    () => factory() as any,
+  );
 }
 
 function derivePart<T extends object, Needs extends readonly (keyof T)[], P extends Partial<T>>(
@@ -168,18 +192,23 @@ function derivePart<T extends object, Needs extends readonly (keyof T)[], P exte
     current: Readonly<{ [K in Needs[number]]-?: FieldValue<T, K> }>,
   ) => P & GuaranteedValues<P, T>,
 ) {
-  return createPart<T, NormalizeContribution<T, P>, Needs[number], "add">("add", (current) => {
-    const input: Record<string, unknown> = {};
-    for (const key of needs) {
-      input[key as string] = current[key as string];
-    }
-    return f(input as any) as any;
-  });
+  return createPart<T, NormalizeContribution<T, P>, Needs[number], "add">(
+    "add",
+    needs as ReadonlyArray<keyof T & string>,
+    (current) => {
+      const input: Record<string, unknown> = {};
+      for (const key of needs) {
+        input[key as string] = current[key as string];
+      }
+      return f(input as any) as any;
+    },
+  );
 }
 
 function overridePart<T extends object, K extends keyof T>(key: K, value: T[K]) {
   return createPart<T, FieldContribution<T, K>, K, "replace">(
     "replace",
+    [key as keyof T & string],
     () =>
       ({
         [key]: value,
@@ -190,6 +219,7 @@ function overridePart<T extends object, K extends keyof T>(key: K, value: T[K]) 
 function updatePart<T extends object, K extends keyof T>(key: K, f: (current: T[K]) => T[K]) {
   return createPart<T, FieldContribution<T, K>, K, "replace">(
     "replace",
+    [key as keyof T & string],
     (current) => ({ [key]: f(current[key as string] as T[K]) }) as any,
   );
 }
@@ -197,6 +227,7 @@ function updatePart<T extends object, K extends keyof T>(key: K, f: (current: T[
 function defaultPart<T extends object, K extends keyof T>(key: K, value: T[K]) {
   return createPart<T, FieldContribution<T, K>, never, "default">(
     "default",
+    [],
     () =>
       ({
         [key]: value,
@@ -208,7 +239,9 @@ function whenPart<T extends object, Out, Needs extends keyof T, Policy extends C
   condition: boolean,
   part: Part<T, Out, Needs, Policy>,
 ) {
-  return createPart<T, ConditionalOut<Out, Policy>, Needs, Policy>(part.policy, (current) =>
+  // The wrapped part checks its own needs when it actually runs, so a
+  // conditional contribution does not require them when the condition is false.
+  return createPart<T, ConditionalOut<Out, Policy>, Needs, Policy>(part.policy, [], (current) =>
     condition ? part.run(current) : ({} as ConditionalOut<Out, Policy>),
   );
 }
@@ -277,7 +310,7 @@ function createBuilder<T extends object, State>(parts: readonly unknown[]): Buil
     derive: (f: (current: any) => unknown) =>
       createBuilder<T, any>([
         ...parts,
-        createPart<T, any, never, "add">("add", (current) => f(current)),
+        createPart<T, any, never, "add">("add", [], (current) => f(current)),
       ]),
     default: (key: string, value: unknown) =>
       createBuilder<T, any>([

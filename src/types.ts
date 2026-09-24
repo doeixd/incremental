@@ -58,6 +58,8 @@ export interface Part<
 > {
   readonly [PART]: true;
   readonly [PART_META]: PartMeta<T, Out, Needs, Policy>;
+  /** Runtime list of keys that must exist before this part runs. */
+  readonly needs: ReadonlyArray<keyof T & string>;
   /** Runs this part against the current state and returns its contribution. */
   readonly run: (current: Readonly<Record<string, unknown>>) => Out;
   readonly policy: Policy;
@@ -308,6 +310,20 @@ export type UseNext<T extends object, State, P> =
   Apply<T, State, P> extends infer Next ? (IsError<Next> extends true ? State : Next) : never;
 
 /**
+ * The next chained builder after `.when(condition, part)`, or a diagnostic.
+ *
+ * The part is validated through {@link Apply} exactly like `.use`, but the
+ * resulting state uses {@link ConditionalOut}, because a conditional
+ * contribution only *may* provide its added keys.
+ */
+export type WhenNext<T extends object, State, Out, Policy, P> =
+  Apply<T, State, P> extends infer Next
+    ? IsError<Next> extends true
+      ? Next
+      : Builder<T, Merge<State, ConditionalOut<Out, Policy>>>
+    : never;
+
+/**
  * The state produced by a chained additive contribution, or a diagnostic when
  * the contribution is invalid (extra keys, duplicates, ...).
  */
@@ -414,6 +430,6 @@ export interface BuilderMethods<T extends object, State> {
 
   when<Out, Needs extends keyof T, Policy extends ContributionPolicy>(
     condition: boolean,
-    part: Part<T, Out, Needs, Policy>,
-  ): Builder<T, Merge<State, ConditionalOut<Out, Policy>>>;
+    part: Part<T, Out, Needs, Policy> & UseGuard<T, State, Part<T, Out, Needs, Policy>>,
+  ): WhenNext<T, State, Out, Policy, Part<T, Out, Needs, Policy>>;
 }

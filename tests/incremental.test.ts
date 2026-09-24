@@ -234,7 +234,21 @@ describe("runtime safety", () => {
   test("replacing a missing key throws", () => {
     // @ts-expect-error replacing a missing key is rejected statically
     const build = () => I.build(I.override("host", "a"));
-    expect(build).toThrow(/cannot replace missing key "host"/);
+    expect(build).toThrow(/missing required key "host"/);
+  });
+
+  test("a part whose needs are not met throws at runtime", () => {
+    const derived = I.derive(["host"], ({ host }) => ({ url: host }));
+    // @ts-expect-error ordering is checked statically
+    const build = () => I.build(derived, I.with.host("a"));
+    expect(build).toThrow(/missing required key "host"/);
+  });
+
+  test("when(false) does not require the wrapped part's needs", () => {
+    const derived = I.derive(["host"], ({ host }) => ({ url: host }));
+    // @ts-expect-error the wrapped part needs host statically
+    const result = I.build(I.when(false, derived));
+    expect(result).toEqual({});
   });
 
   test("non-parts throw", () => {

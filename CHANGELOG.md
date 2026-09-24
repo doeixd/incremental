@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The chained `.when(condition, part)` now runs its part through the same
+  `Apply` validation as `.use(part)`: a conditional add of an existing key, a
+  conditional derive with an unsatisfied dependency, and a conditional
+  replacement of a missing key are all compile errors instead of slipping
+  through to a runtime throw.
+- Parts now carry and check their runtime `needs`. A part whose dependencies are
+  not met throws `Incremental: missing required key "…"` even if the type-level
+  ordering check is bypassed. A conditional contribution checks its needs only
+  when it actually runs, so `when(false, part)` requires nothing.
+
 ## 0.1.0 — 2026-09-24
 
 ### Added

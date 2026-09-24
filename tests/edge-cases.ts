@@ -183,6 +183,30 @@ I.begin()
     return { url: String(current.secure) };
   });
 
+// The chained .when validates its part exactly like .use.
+I.begin()
+  .field("host", "a")
+  // @ts-expect-error host already exists
+  .when(true, I.with.host("b"));
+
+const unavailableDerive = I.derive(["host"], ({ host }) => ({ url: host }));
+I.begin()
+  // @ts-expect-error host is not available yet
+  .when(true, unavailableDerive);
+
+I.begin()
+  // @ts-expect-error host has not been provided
+  .when(true, I.override("host", "b"));
+
+// A valid chained .when still works.
+const validWhen = I.begin()
+  .field("host", "a")
+  .field("port", 1)
+  .derive(({ host, port }) => ({ url: `${host}:${port}` }))
+  .when(true, I.with.secure(true))
+  .exhaustive();
+expectTypeOf(validWhen).toMatchTypeOf<Config>();
+
 // -----------------------------------------------------------------------------
 // Defaults
 // -----------------------------------------------------------------------------
