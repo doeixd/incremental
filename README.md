@@ -330,6 +330,126 @@ Add a field to `Model` and this handler stops compiling until you account for it
 — which is what you want for a reset. For messages that tweak a single field,
 keep `modifyFields`; `Incremental` is for producing a complete state.
 
+## Before / after: Foldkit messages
+
+### Constructing a message
+
+A Message variant can carry a payload whose fields depend on one another.
+Listing them by hand means recomputing the derived ones and keeping them
+consistent.
+
+**Before** — `subtotal` is computed three times and `total` is arithmetic done
+in the caller:
+
+```ts
+h.button(
+  [
+    h.OnClick(
+      Message.SubmittedOrder({
+        items,
+        currency: "USD",
+        subtotal: items.reduce((sum, item) => sum + item.price * item.quantity, 0),
+        tax: items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 0.08,
+        total: items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 1.08,
+      }),
+    ),
+  ],
+  ["Place order"],
+);
+```
+
+**After** — the payload is built once, with the derived fields computed from
+their declared dependencies:
+
+```ts
+import { Incremental } from "@doeixd/incremental";
+
+interface OrderPayload {
+  items: ReadonlyArray<LineItem>;
+  currency: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+}
+const OrderI = Incremental.make<OrderPayload>();
+
+h.button(
+  [
+    h.OnClick(
+      Message.SubmittedOrder(
+        OrderI.build(
+          OrderI.with.items(items),
+          OrderI.with.currency("USD"),
+          OrderI.derive(["items", "currency"], ({ items, currency }) => {
+            const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+            const rate = currency === "USD" ? 0.08 : 0.2;
+            const tax = Math.round(subtotal * rate);
+            return { subtotal, tax, total: subtotal + tax };
+          }),
+          OrderI.exhaustive,
+        ),
+      ),
+    ),
+  ],
+  ["Place order"],
+);
+```
+
+### Composing a message union
+
+When several features each own a slice of the app's messages, the cases are
+usually merged with object spread. A tag claimed by two features silently
+overwrites, and nothing proves the union is complete.
+
+Each feature exports its cases:
+
+```ts
+// features/routing/messages.ts
+export const cases = {
+  Navigated: { route: Route },
+  LinkClicked: { href: Schema.String },
+};
+```
+
+```ts
+// features/remote/messages.ts
+export const cases = {
+  Received: { payload: Schema.String },
+  Failed: { error: Schema.String },
+};
+```
+
+**Before** — spread hides the collision:
+
+```ts
+import { defineMessageUnion } from "foldkit/message";
+import * as Routing from "./features/routing/messages";
+import * as Remote from "./features/remote/messages";
+
+const Message = defineMessageUnion({
+  ...Routing.cases,
+  ...Remote.cases,
+});
+```
+
+**After** — a duplicate tag is a compile error, and the union is proven
+complete:
+
+```ts
+import { Incremental } from "@doeixd/incremental";
+
+type MessageCases = typeof Routing.cases & typeof Remote.cases;
+
+const Cases = Incremental.make<MessageCases>();
+const cases = Cases.build(
+  Cases.partial(Routing.cases),
+  Cases.partial(Remote.cases),
+  Cases.exhaustive,
+);
+
+const Message = defineMessageUnion(cases);
+```
+
 ## Diagnostics
 
 Invalid builds report a **named diagnostic** at the offending argument, rather
