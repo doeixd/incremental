@@ -26,13 +26,13 @@ Why not object spread? Because spread throws away the interesting facts:
 ## Install
 
 ```bash
-npm install incremental
+npm install @doeixd/incremental
 ```
 
 ## Quick start
 
 ```ts
-import { Incremental } from "incremental";
+import { Incremental } from "@doeixd/incremental";
 
 interface Config {
   host: string;

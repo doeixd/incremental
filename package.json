@@ -1,5 +1,5 @@
 {
-  "name": "incremental",
+  "name": "@doeixd/incremental",
   "version": "0.1.0",
   "description": "A typed fold over object contributions: build an object piece by piece, know its exact shape at every step, and prove when it is complete.",
   "keywords": [

@@ -124,7 +124,7 @@ R.build(); // ✗ exhaustiveness is meaningless for infinitely many keys
 `ExpectDiagnostic<Actual, Expected>` is a compile-time assertion:
 
 ```ts
-import { Apply, DuplicateContributionError, ExpectDiagnostic } from "incremental";
+import { Apply, DuplicateContributionError, ExpectDiagnostic } from "@doeixd/incremental";
 
 type Check = ExpectDiagnostic<
   Apply<Config, { host: string }, Part<Config, { host: string }, never, "add">>,
