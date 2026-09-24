@@ -1,5 +1,10 @@
 # Incremental
 
+[![npm version](https://img.shields.io/npm/v/@doeixd/incremental.svg)](https://www.npmjs.com/package/@doeixd/incremental)
+[![npm downloads](https://img.shields.io/npm/dm/@doeixd/incremental.svg)](https://www.npmjs.com/package/@doeixd/incremental)
+[![license](https://img.shields.io/npm/l/@doeixd/incremental.svg)](https://github.com/doeixd/incremental/blob/master/LICENSE)
+[![types](https://img.shields.io/npm/types/@doeixd/incremental.svg)](https://www.npmjs.com/package/@doeixd/incremental)
+
 > Build an object piece by piece, know its exact shape at every step, and prove
 > when it is complete.
 
@@ -289,6 +294,12 @@ See [`docs/diagnostics.md`](docs/diagnostics.md) for the full list and fixes.
 - Contributions whose types do not guarantee their keys are handled
   conservatively and can never satisfy `exhaustive`.
 - `any` values are not defended against (as always).
+
+## Links
+
+- npm: <https://www.npmjs.com/package/@doeixd/incremental>
+- GitHub: <https://github.com/doeixd/incremental>
+- Issues: <https://github.com/doeixd/incremental/issues>
 
 ## Development
 
